@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Auth {
+  id       String     @id @default(uuid())
+  salt     String
+  hash     String
+  Business Business[]
+
+  @@index([id])
+  @@map("auth")
+}
+
+model Business {
+  id              String            @id @default(uuid())
+  name            String            @db.VarChar(255)
+  login           String            @db.VarChar(50)
+  auth            Auth              @relation(fields: [authId], references: [id])
+  authId          String
+  Usine           Usine[]
+  BusinessUsine   BusinessUsine[]
+  BusinessMachine BusinessMachine[]
+
+  @@index([id])
+  @@map("business")
+}
+
+model Usine {
+  id            String          @id @default(uuid())
+  business      Business        @relation(fields: [businessId], references: [id])
+  businessId    String
+  Machine       Machine[]
+  BusinessUsine BusinessUsine[]
+
+  @@index([id])
+  @@map("usine")
+}
+
+model Control {
+  id                   String    @id @default(uuid())
+  motor_max_frequency  Decimal
+  motor_voltage_rating Decimal
+  vfd_max_frequency    Decimal
+  vfd_voltage_rating   Decimal
+  Machine              Machine[]
+
+  @@index([id])
+  @@map("control")
+}
+
+model Machine {
+  id              String            @id @default(uuid())
+  description     String            @db.VarChar(255)
+  usineId         String
+  controlId       String
+  usine           Usine             @relation(fields: [usineId], references: [id])
+  control         Control           @relation(fields: [controlId], references: [id])
+  Sensor          Sensor[]
+  BusinessMachine BusinessMachine[]
+
+  @@index([id])
+  @@map("machine")
+}
+
+model Sensor {
+  id          String  @id @default(uuid())
+  description String  @db.VarChar(255)
+  value       Decimal
+  min_range   Decimal
+  max_range   Decimal
+  uom         String  @db.VarChar(50)
+  machineId   String
+  machine     Machine @relation(fields: [machineId], references: [id])
+  Alert       Alert[]
+
+  @@index([id])
+  @@map("sensor")
+}
+
+model Alert {
+  id        String   @id @default(uuid())
+  timestamp DateTime
+  sensorId  String
+  sensor    Sensor   @relation(fields: [sensorId], references: [id])
+
+  @@index([id])
+  @@map("alert")
+}
+
+model BusinessUsine {
+  id         String   @id @default(uuid())
+  businessId String
+  usineId    String
+  usine      Usine    @relation(fields: [usineId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id])
+
+  @@index([id])
+  @@map("business_usine")
+}
+
+model BusinessMachine {
+  id         String   @id @default(uuid())
+  businessId String
+  machineId  String
+  business   Business @relation(fields: [businessId], references: [id])
+  machine    Machine  @relation(fields: [machineId], references: [id])
+
+  @@index([id])
+  @@map("business_machine")
+}
