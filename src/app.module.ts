@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
+import { SensorModule } from './modules';
 
 @Module({
-  imports: [],
+  imports: [SensorModule],
   controllers: [],
   providers: [],
 })

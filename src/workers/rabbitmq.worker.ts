@@ -1,23 +1,26 @@
 import amqp from 'amqp-connection-manager'
 import { Channel, ConsumeMessage } from 'amqplib'
-import { MongoClient, ServerApiVersion } from 'mongodb'
+import { InsertManyResult, InsertOneResult, MongoClient, ServerApiVersion } from 'mongodb'
 import * as dotenv from 'dotenv'
 import { AmqpConnectionManager } from 'amqp-connection-manager'
 import { Logger } from '@nestjs/common'
+import { WebSocketServer } from 'ws'
 
 dotenv.config()
 
 enum SERVICES {
     rabbitmq = 'Worker RabbitMQ',
     mongodb = 'Worker MongoDB',
-    worker = 'Worker'
+    socket = 'Worker Socket Server',
+    worker = 'Worker',
 }
 
 export class RabbitMQWorker {
     private static instance: RabbitMQWorker;
 
-    protected mongoConnection?: MongoClient;
-    protected amqpConnection?: AmqpConnectionManager;
+    mongoConnection?: MongoClient;
+    amqpConnection?: AmqpConnectionManager;
+    socketServer?: WebSocketServer;
 
     private constructor() { }
 
@@ -48,6 +51,17 @@ export class RabbitMQWorker {
         this.mongoConnection = await mongoClient.connect();
 
         Logger.debug('MongoDB connected!', SERVICES.mongodb);
+
+        const WS_PORT = 3100
+        this.socketServer = new WebSocketServer({
+            port: WS_PORT,
+        })
+
+        this.socketServer.on('connection', (connection) => {
+            console.log(connection);
+        });
+
+        Logger.debug('Socket server connected!', SERVICES.socket)
     }
 
     async execute() {
@@ -62,7 +76,7 @@ export class RabbitMQWorker {
 
         const handleMessage = async (msg: ConsumeMessage) => {
             if (msg) {
-                let messageObj: Object | undefined;
+                let messageObj: Record<string, any> | undefined;
 
                 try {
                     messageObj = JSON.parse(msg.content.toString())
@@ -76,19 +90,33 @@ export class RabbitMQWorker {
                     return
                 }
 
-
                 try {
-                    const result = await sensorCol.insertOne(messageObj)
+                    let result: InsertOneResult<Document> | InsertManyResult<Document>;
 
-                    Logger.debug(`Dados enviados ao banco! ID: ${result.insertedId}`, SERVICES.mongodb);
+                    if (Array.isArray(messageObj)) {
+                        result = await sensorCol.insertMany(messageObj)
+
+                        Logger.debug(`Dados enviados ao banco! IDS: ${Object.values(result.insertedIds)}`, SERVICES.mongodb);
+
+                        messageObj.forEach((item) => {
+                            if (item.hasOwnProperty('CompanyId')) {
+                                this.socketServer.emit(String(item.CompanyId), messageObj)
+                            }
+                        })
+                    } else {
+                        result = await sensorCol.insertOne(messageObj)
+
+                        Logger.debug(`Dados enviados ao banco! ID: ${result.insertedId}`, SERVICES.mongodb);
+
+                        if (messageObj.hasOwnProperty('CompanyId')) {
+                            this.socketServer.emit(String(messageObj.CompanyId), messageObj)
+                        }
+                    }
                 } catch (error) {
                     Logger.error(`Erro ao salvar a mensagem no banco: ${error}`, SERVICES.mongodb);
                 }
             }
         }
-
-        this.mongoConnection.on('connect', () => Logger.debug('Connected!', SERVICES.rabbitmq));
-        this.mongoConnection.on('disconnect', err => Logger.debug(`Disconnected! ${err}`, SERVICES.rabbitmq));
 
         const chanWrapper = await this.amqpConnection.createChannel({
             json: true,
