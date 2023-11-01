@@ -4,7 +4,9 @@ import { InsertManyResult, InsertOneResult, MongoClient, ServerApiVersion } from
 import * as dotenv from 'dotenv'
 import { AmqpConnectionManager } from 'amqp-connection-manager'
 import { Logger } from '@nestjs/common'
-import { WebSocketServer } from 'ws'
+import { WebSocketServer, WebSocket } from 'ws'
+import { randomUUID } from 'node:crypto'
+import { MemoryCache, caching } from 'cache-manager'
 
 dotenv.config()
 
@@ -21,6 +23,7 @@ export class RabbitMQWorker {
     mongoConnection?: MongoClient;
     amqpConnection?: AmqpConnectionManager;
     socketServer?: WebSocketServer;
+    cacheManager?: MemoryCache;
 
     private constructor() { }
 
@@ -30,6 +33,19 @@ export class RabbitMQWorker {
         }
 
         return RabbitMQWorker.instance;
+    }
+
+    protected async broadcastMessage(eventName: string, message: Record<string, any>) {
+        const storeKeys = await this.cacheManager.store.keys();
+
+        for (const key of storeKeys) {
+            const conn = await this.cacheManager.get<WebSocket>(key)
+            conn.emit(eventName, message)
+        }
+    }
+
+    protected handleDisconnect(userId: string) {
+        Logger.verbose(`${userId} disconnected.`, SERVICES.socket);
     }
 
     protected async setupServices() {
@@ -57,9 +73,20 @@ export class RabbitMQWorker {
             port: WS_PORT,
         })
 
-        this.socketServer.on('connection', (connection) => {
-            console.log(connection);
+        this.cacheManager = await caching('memory', {
+            max: 100,
+            ttl: 0
         });
+
+        this.socketServer.on('connection', async (conn) => {
+            const id = randomUUID()
+            Logger.verbose(`New socket connection: ${id}`)
+
+            await this.cacheManager.set(id, conn)
+            conn.on('close', () => {
+                this.handleDisconnect(id)
+            })
+        })
 
         Logger.debug('Socket server connected!', SERVICES.socket)
     }
@@ -98,18 +125,19 @@ export class RabbitMQWorker {
 
                         Logger.debug(`Dados enviados ao banco! IDS: ${Object.values(result.insertedIds)}`, SERVICES.mongodb);
 
-                        messageObj.forEach((item) => {
+                        for (const item of messageObj) {
                             if (item.hasOwnProperty('CompanyId')) {
-                                this.socketServer.emit(String(item.CompanyId), messageObj)
+                                await this.broadcastMessage(String(item.Companyid), item)
                             }
-                        })
+                        }
                     } else {
                         result = await sensorCol.insertOne(messageObj)
 
                         Logger.debug(`Dados enviados ao banco! ID: ${result.insertedId}`, SERVICES.mongodb);
 
                         if (messageObj.hasOwnProperty('CompanyId')) {
-                            this.socketServer.emit(String(messageObj.CompanyId), messageObj)
+                            await this.broadcastMessage(String(messageObj.CompanyId), messageObj)
+                            Logger.debug('Dados emitidos ao socket!', SERVICES.socket)
                         }
                     }
                 } catch (error) {

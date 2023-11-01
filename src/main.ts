@@ -24,6 +24,8 @@ async function bootstrap() {
     await Promise.all([
       rmq.amqpConnection.close(),
       rmq.mongoConnection.close(),
+      rmq.socketServer.close(),
+      rmq.cacheManager.store.reset()
     ])
     process.exit(0)
   })
