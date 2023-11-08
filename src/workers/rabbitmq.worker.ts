@@ -7,6 +7,8 @@ import { Logger } from '@nestjs/common'
 import { WebSocketServer, WebSocket } from 'ws'
 import { randomUUID } from 'node:crypto'
 import { MemoryCache, caching } from 'cache-manager'
+import { Server } from 'socket.io'
+import { createServer } from 'node:http'
 
 dotenv.config()
 
@@ -22,7 +24,7 @@ export class RabbitMQWorker {
 
     mongoConnection?: MongoClient;
     amqpConnection?: AmqpConnectionManager;
-    socketServer?: WebSocketServer;
+    socketServer?: Server;
     cacheManager?: MemoryCache;
 
     private constructor() { }
@@ -33,15 +35,6 @@ export class RabbitMQWorker {
         }
 
         return RabbitMQWorker.instance;
-    }
-
-    protected async broadcastMessage(eventName: string, message: Record<string, any>) {
-        const storeKeys = await this.cacheManager.store.keys();
-
-        for (const key of storeKeys) {
-            const conn = await this.cacheManager.get<WebSocket>(key)
-            conn.emit(eventName, message)
-        }
     }
 
     protected handleDisconnect(userId: string) {
@@ -68,27 +61,32 @@ export class RabbitMQWorker {
 
         Logger.debug('MongoDB connected!', SERVICES.mongodb);
 
-        const WS_PORT = 3100
-        this.socketServer = new WebSocketServer({
-            port: WS_PORT,
-        })
-
         this.cacheManager = await caching('memory', {
             max: 100,
             ttl: 0
         });
 
-        this.socketServer.on('connection', async (conn) => {
-            const id = randomUUID()
-            Logger.verbose(`New socket connection: ${id}`)
+        const WS_PORT = 3100
+        const wsHttpServer = createServer()
+        this.socketServer = new Server(wsHttpServer, {
+            cors: {
+                allowedHeaders: '*',
+                methods: '*',
+                origin: '*'
+            }
+        })
 
-            await this.cacheManager.set(id, conn)
-            conn.on('close', () => {
-                this.handleDisconnect(id)
+        this.socketServer.on('connection', async (conn) => {
+            Logger.verbose(`New socket connection: ${conn.id}`, SERVICES.socket)
+
+            conn.on('disconnect', () => {
+                this.handleDisconnect(conn.id)
             })
         })
 
-        Logger.debug('Socket server connected!', SERVICES.socket)
+        wsHttpServer.listen(WS_PORT, () => {
+            Logger.debug(`Socket server connected on port ${WS_PORT}!`, SERVICES.socket)
+        })
     }
 
     async execute() {
@@ -127,16 +125,18 @@ export class RabbitMQWorker {
 
                         for (const item of messageObj) {
                             if (item.hasOwnProperty('CompanyId')) {
-                                await this.broadcastMessage(String(item.Companyid), item)
+                                await this.socketServer.emit(String(item.Companyid), item)
                             }
                         }
+
+                        Logger.debug('Dados emitidos ao socket!', SERVICES.socket)
                     } else {
                         result = await sensorCol.insertOne(messageObj)
 
                         Logger.debug(`Dados enviados ao banco! ID: ${result.insertedId}`, SERVICES.mongodb);
 
                         if (messageObj.hasOwnProperty('CompanyId')) {
-                            await this.broadcastMessage(String(messageObj.CompanyId), messageObj)
+                            await this.socketServer.emit(String(messageObj.CompanyId), messageObj)
                             Logger.debug('Dados emitidos ao socket!', SERVICES.socket)
                         }
                     }
