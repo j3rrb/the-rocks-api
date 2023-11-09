@@ -1,3 +1,3 @@
-import SensorModule from "./sensor/sensor.module";
+import SensorModule from './sensor/sensor.module';
 
-export { SensorModule }
+export { SensorModule };

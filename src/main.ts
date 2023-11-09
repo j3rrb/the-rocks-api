@@ -1,20 +1,20 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { RabbitMQWorker } from './workers/rabbitmq.worker';
-import { Logger } from '@nestjs/common'
+import { Logger } from '@nestjs/common';
 
 async function bootstrap() {
-  const PORT = Number(process.env.APP_PORT)
+  const PORT = Number(process.env.APP_PORT);
   const app = await NestFactory.create(AppModule, {
     cors: {
       methods: ['GET', 'POST'],
       origin: '*',
-      allowedHeaders: '*'
-    }
+      allowedHeaders: '*',
+    },
   });
 
   const rmq = RabbitMQWorker.getInstance();
-  await rmq.execute()
+  await rmq.execute();
 
   await app.listen(PORT || 3000, () => {
     Logger.log(`App listening on port ${PORT}`, 'NestApplication');
@@ -25,10 +25,9 @@ async function bootstrap() {
       rmq.amqpConnection.close(),
       rmq.mongoConnection.close(),
       rmq.socketServer.close(),
-      rmq.cacheManager.store.reset()
-    ])
-    process.exit(0)
-  })
+    ]);
+    process.exit(0);
+  });
 }
 
 bootstrap().catch((err) => {
