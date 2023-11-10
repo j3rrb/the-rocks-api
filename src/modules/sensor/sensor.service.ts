@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { RabbitMQWorker } from 'src/workers/rabbitmq.worker';
+import { format, subDays } from 'date-fns'
 
 @Injectable()
 export default class SensorService {
@@ -16,8 +17,12 @@ export default class SensorService {
           Value: {
             $type: 'number',
           },
+          SensorId: 'S15',
+          timestamp: {
+            $gte: format(subDays(new Date(), days), 'yyyy-M-dd hh:mm:ss'),
+            $lte: format(new Date(), 'yyyy-M-dd hh:mm:ss'),
+          }
         })
-        .limit(100)
         .sort({
           timestamp: 'asc',
         })
@@ -32,8 +37,12 @@ export default class SensorService {
         Value: {
           $type: 'number',
         },
+        SensorId: 'S15',
+        timestamp: {
+          $gte: format(new Date(), 'yyyy-M-dd hh:mm:ss'),
+          // $lte: format(new Date(), 'yyyy-M-dd hh:mm:ss'),
+        }
       })
-      .limit(100)
       .sort({
         timestamp: 'asc',
       })
